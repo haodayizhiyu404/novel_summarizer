@@ -276,7 +276,12 @@ function buildCharInfoBlock(context, userName, charName) {
 async function buildWorldInfoBlock(context) {
     if (typeof context?.getWorldInfoPrompt !== 'function') return '';
     try {
-        const result = await context.getWorldInfoPrompt(context.chat || [], 4096, true);
+        // 注意：getWorldInfoPrompt 要求传入【字符串数组】（最新消息在前），
+        // 与 ST 主流程一致：chat.map(x => `${x.name}: ${x.mes}`).reverse()
+        const chatForWI = (context.chat || [])
+            .map(x => `${x.name}: ${x.mes}`)
+            .reverse();
+        const result = await context.getWorldInfoPrompt(chatForWI, 4096, true);
         const text = String(result?.worldInfoString || '').trim();
         if (!text) return '';
         logDebug(`已注入 World Info 背景，长度 ${text.length} 字符`);
