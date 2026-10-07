@@ -20,6 +20,8 @@ const defaultSettings = {
     customBaseUrl: '',
     customApiKey: '',
     customModel: '',
+    includeCharInfo: true,
+    includeWorldInfo: true,
     promptTemplate:
 `# 你的身份：小说总结引擎
 #唯一任务：总结所有已发生故事内容（剧情编年史）
@@ -254,16 +256,60 @@ function buildPrompt(settings, bigSummary, newSummaries, context = null) {
     return prompt;
 }
 
+// 角色卡设定块：让总结 AI 知道主角人设，避免冷门 NPC 被理解偏差
+function buildCharInfoBlock(context, userName, charName) {
+    const char = context?.characters?.[context.characterId];
+    if (!char) return '';
+    const fill = (t) => String(t || '')
+        .replace(/\{\{user\}\}/gi, userName)
+        .replace(/\{\{char\}\}/gi, charName)
+        .trim();
+    const parts = [];
+    if (fill(char.description)) parts.push(`【${charName} 的角色卡设定】\n${fill(char.description)}`);
+    if (fill(char.personality)) parts.push(`【${charName} 的性格设定】\n${fill(char.personality)}`);
+    if (fill(char.scenario)) parts.push(`【故事背景情境】\n${fill(char.scenario)}`);
+    return parts.join('\n\n');
+}
+
+// 世界书块：取当前激活的 World Info 条目作为背景参考
+function buildWorldInfoBlock(context) {
+    if (typeof context?.getWorldInfoPrompt !== 'function') return '';
+    try {
+        const entries = context.getWorldInfoPrompt(context.chat || [], 4096, true);
+        const text = (entries || [])
+            .map(e => (typeof e === 'string' ? e : e?.content))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+        return text ? `【World Info 世界书条目（仅作背景参考，不要总结此部分内容）】\n${text}` : '';
+    } catch (err) {
+        console.warn(`[${extensionName}] 获取 World Info 失败`, err);
+        return '';
+    }
+}
+
 function buildMessages(settings, bigSummary, historyMessages, context) {
     const userName = context?.name1 || 'User';
     const charName = context?.name2 || 'Character';
 
     // system 消息：总结指令 + 已有大总结
     const systemContent = buildPrompt(settings, bigSummary, [], context);
+
+    // 背景信息：角色卡设定 + 世界书（可分别关闭）
+    const bg = [];
+    if (settings.includeCharInfo !== false) {
+        const charBlock = buildCharInfoBlock(context, userName, charName);
+        if (charBlock) bg.push(charBlock);
+    }
+    if (settings.includeWorldInfo !== false) {
+        const wiBlock = buildWorldInfoBlock(context);
+        if (wiBlock) bg.push(wiBlock);
+    }
+
     const identity = `User 名称：${userName}。以下对话中，user 代表 User，assistant 代表故事角色（可能包含多位 NPC）。\n\n`;
 
     const messages = [
-        { role: 'system', content: identity + systemContent },
+        { role: 'system', content: identity + (bg.length ? bg.join('\n\n') + '\n\n' : '') + systemContent },
         ...historyMessages,
         { role: 'user', content: settings.finalUserPrompt || '请基于以上剧情生成大总结。' },
     ];
@@ -778,6 +824,18 @@ function addSettingsPanel(context) {
                     </label>
                 </div>
                 <div class="flex-container flexFlowColumn gap5">
+                    <label for="${extensionName}-include-char-info" class="checkbox_label">
+                        <input id="${extensionName}-include-char-info" type="checkbox" class="checkbox" ${settings.includeCharInfo !== false ? 'checked' : ''} />
+                        <span>总结时附带角色卡设定（描述/性格/背景情境，防止人设理解偏差）</span>
+                    </label>
+                </div>
+                <div class="flex-container flexFlowColumn gap5">
+                    <label for="${extensionName}-include-world-info" class="checkbox_label">
+                        <input id="${extensionName}-include-world-info" type="checkbox" class="checkbox" ${settings.includeWorldInfo !== false ? 'checked' : ''} />
+                        <span>总结时附带 World Info（世界书）内容作为背景参考</span>
+                    </label>
+                </div>
+                <div class="flex-container flexFlowColumn gap5">
                     <label for="${extensionName}-custom-base-url">自定义 API Base URL（需以 /v1 结尾）：</label>
                     <input id="${extensionName}-custom-base-url" type="text" class="text_pole" placeholder="https://your-api.com/v1" value="${settings.customBaseUrl}" />
                 </div>
@@ -928,6 +986,16 @@ function addSettingsPanel(context) {
         context.saveSettingsDebounced();
     });
 
+    $(`#${extensionName}-include-char-info`).on('input', function () {
+        settings.includeCharInfo = $(this).prop('checked');
+        context.saveSettingsDebounced();
+    });
+
+    $(`#${extensionName}-include-world-info`).on('input', function () {
+        settings.includeWorldInfo = $(this).prop('checked');
+        context.saveSettingsDebounced();
+    });
+
     $(`#${extensionName}-custom-base-url`).on('input', function () {
         settings.customBaseUrl = $(this).val();
         context.saveSettingsDebounced();
@@ -1030,6 +1098,8 @@ function updateUi(context) {
     $(`#${extensionName}-target-length`).val(settings.targetLength);
     $(`#${extensionName}-max-batch-size`).val(settings.maxBatchSize);
     $(`#${extensionName}-use-custom-api`).prop('checked', settings.useCustomApi);
+    $(`#${extensionName}-include-char-info`).prop('checked', settings.includeCharInfo !== false);
+    $(`#${extensionName}-include-world-info`).prop('checked', settings.includeWorldInfo !== false);
     $(`#${extensionName}-custom-base-url`).val(settings.customBaseUrl);
     $(`#${extensionName}-custom-api-key`).val(settings.customApiKey);
     $(`#${extensionName}-custom-model`).val(settings.customModel);
