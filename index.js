@@ -281,7 +281,10 @@ async function buildWorldInfoBlock(context) {
         const chatForWI = (context.chat || [])
             .map(x => `${x.name}: ${x.mes}`)
             .reverse();
-        const result = await context.getWorldInfoPrompt(chatForWI, 4096, true);
+        // 注意：getWorldInfoPrompt 的第二个参数 maxContext 会决定世界书预算
+        // （默认 25% × maxContext），传太小会把长条目（如主角人设）按预算裁掉。
+        // 总结是一次性后台任务，直接给超大预算，确保所有命中条目都注入。
+        const result = await context.getWorldInfoPrompt(chatForWI, 999999, true);
         const text = String(result?.worldInfoString || '').trim();
         if (!text) return '';
         logDebug(`已注入 World Info 背景，长度 ${text.length} 字符`);
