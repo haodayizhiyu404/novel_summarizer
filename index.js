@@ -272,23 +272,22 @@ function buildCharInfoBlock(context, userName, charName) {
 }
 
 // 世界书块：取当前激活的 World Info 条目作为背景参考
-function buildWorldInfoBlock(context) {
+// 注意：context.getWorldInfoPrompt 是【异步函数】，返回 { worldInfoString, ... } 对象
+async function buildWorldInfoBlock(context) {
     if (typeof context?.getWorldInfoPrompt !== 'function') return '';
     try {
-        const entries = context.getWorldInfoPrompt(context.chat || [], 4096, true);
-        const text = (entries || [])
-            .map(e => (typeof e === 'string' ? e : e?.content))
-            .filter(Boolean)
-            .join('\n')
-            .trim();
-        return text ? `【World Info 世界书条目（仅作背景参考，不要总结此部分内容）】\n${text}` : '';
+        const result = await context.getWorldInfoPrompt(context.chat || [], 4096, true);
+        const text = String(result?.worldInfoString || '').trim();
+        if (!text) return '';
+        logDebug(`已注入 World Info 背景，长度 ${text.length} 字符`);
+        return `【World Info 世界书条目（仅作背景参考，不要总结此部分内容）】\n${text}`;
     } catch (err) {
         console.warn(`[${extensionName}] 获取 World Info 失败`, err);
         return '';
     }
 }
 
-function buildMessages(settings, bigSummary, historyMessages, context) {
+async function buildMessages(settings, bigSummary, historyMessages, context) {
     const userName = context?.name1 || 'User';
     const charName = context?.name2 || 'Character';
 
@@ -299,10 +298,13 @@ function buildMessages(settings, bigSummary, historyMessages, context) {
     const bg = [];
     if (settings.includeCharInfo !== false) {
         const charBlock = buildCharInfoBlock(context, userName, charName);
-        if (charBlock) bg.push(charBlock);
+        if (charBlock) {
+            bg.push(charBlock);
+            logDebug(`已注入角色卡设定，长度 ${charBlock.length} 字符`);
+        }
     }
     if (settings.includeWorldInfo !== false) {
-        const wiBlock = buildWorldInfoBlock(context);
+        const wiBlock = await buildWorldInfoBlock(context);
         if (wiBlock) bg.push(wiBlock);
     }
 
@@ -542,7 +544,7 @@ async function runSummarization(context, forcedTargetFloor = null) {
     logDebug(`调用 generateRaw，主 API：${context.mainApi}，目标长度 ${settings.targetLength}`);
 
     try {
-        const messages = buildMessages(settings, meta.bigSummary, historyMessages, context);
+        const messages = await buildMessages(settings, meta.bigSummary, historyMessages, context);
         const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
         logDebug(`提示词已构造，共 ${messages.length} 条消息，总字符 ${totalChars}`);
 

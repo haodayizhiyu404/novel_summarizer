@@ -6,7 +6,7 @@
     "js": "index.js",
     "css": "",
     "author": "你",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "homePage": "",
     "hooks": {
         "activate": "init"
